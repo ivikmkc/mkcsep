@@ -1,7 +1,7 @@
 # Panduan Hosting MKC CBT (Vercel Serverless & Node.js)
 
-## 1. Deploy ke Vercel (`vercel.json` + `api/index.ts`)
-Proyek ini sudah dilengkapi `vercel.json` dan serverless handler `api/index.ts` sehingga route frontend (`dist/`) dan API backend (`/api/*`) berjalan dalam satu deployment Vercel.
+## 1. Deploy ke Vercel (`vercel.json` + `api/index.cjs`)
+Proyek ini sudah dilengkapi `vercel.json` dan serverless handler CommonJS `api/index.cjs` (dibundel otomatis lewat `npm run build`) sehingga route frontend (`dist/`) dan API backend (`/api/*`) berjalan dalam satu deployment Vercel.
 
 Atur **Environment Variables** berikut di **Vercel Project Settings → Environment Variables**:
 - `SESSION_SECRET`: string acak minimal 32 karakter (wajib sama antar serverless instance agar token login siswa/guru/super admin tetap valid).
