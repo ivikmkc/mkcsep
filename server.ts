@@ -4,7 +4,6 @@ import dotenv from 'dotenv';
 import express, { NextFunction, Request, Response } from 'express';
 import helmet from 'helmet';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import {
   autosaveStudentAnswers,
   createExam,
@@ -57,10 +56,9 @@ import {
   requireRole,
 } from './src/middleware/auth.ts';
 
-dotenv.config();
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+if (!process.env.VERCEL) {
+  dotenv.config();
+}
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -1220,16 +1218,26 @@ app.get(
   }
 );
 
+app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+  console.error('Unhandled API error:', err);
+  if (res.headersSent) return;
+  res.status(err?.status || 500).json({
+    error: err?.message || 'Terjadi kesalahan internal pada server CBT.',
+  });
+});
+
 async function startServer() {
-  if (process.env.NODE_ENV !== 'production') {
-    const { createServer: createViteServer } = await import('vite');
+  if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
+    const vitePkg = 'vite';
+    const { createServer: createViteServer } = await import(vitePkg);
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.resolve(__dirname, 'dist');
+    const baseDir = typeof __dirname !== 'undefined' ? __dirname : process.cwd();
+    const distPath = path.resolve(baseDir, 'dist');
     app.use(express.static(distPath));
     app.get('*', (_req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
