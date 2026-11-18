@@ -1,21 +1,46 @@
-'use strict';
+import { createRequire } from 'node:module';
+import path from 'node:path';
 
-let handlerModule;
+let handlerModule = null;
 let loadError = null;
 
 try {
-  handlerModule = require('./_server.cjs');
+  const reqFn =
+    typeof import.meta !== 'undefined' && import.meta.url
+      ? createRequire(import.meta.url)
+      : require;
+
+  const candidates = [
+    './_server.cjs',
+    path.resolve(process.cwd(), 'api', '_server.cjs'),
+  ];
+
+  for (const target of candidates) {
+    try {
+      handlerModule = reqFn(target);
+      if (handlerModule) {
+        loadError = null;
+        break;
+      }
+    } catch (err) {
+      loadError = err;
+    }
+  }
 } catch (err) {
   loadError = err;
-  console.error('Failed to load bundled server handler:', err);
+  console.error('Failed to initialize bundled server handler:', err);
 }
 
 const app =
   handlerModule &&
   (handlerModule.default || handlerModule.app || handlerModule);
 
-module.exports = function handler(req, res) {
-  if (loadError || typeof app !== 'function') {
+export const config = {
+  maxDuration: 30,
+};
+
+export default function handler(req, res) {
+  if (typeof app !== 'function') {
     if (!res.headersSent) {
       res.statusCode = 500;
       res.setHeader('Content-Type', 'application/json');
@@ -46,4 +71,4 @@ module.exports = function handler(req, res) {
       );
     }
   }
-};
+}
