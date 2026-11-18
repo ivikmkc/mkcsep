@@ -1,5 +1,7 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import { adminDb, hasAdminServiceAccount } from '../lib/firebase-admin.ts';
 
 export interface StoredUser {
   id: number;
@@ -135,7 +137,23 @@ export interface StoreState {
   violationLogs: StoredViolationLog[];
 }
 
-const DATA_DIR = path.resolve(process.cwd(), '.data');
+type TableKey = keyof StoreState['counters'];
+
+const COLLECTION_NAMES: Record<TableKey, string> = {
+  users: 'cbt_users',
+  schoolSettings: 'cbt_school_settings',
+  questions: 'cbt_questions',
+  exams: 'cbt_exams',
+  examQuestions: 'cbt_exam_questions',
+  examSessions: 'cbt_exam_sessions',
+  studentAnswers: 'cbt_student_answers',
+  violationLogs: 'cbt_violation_logs',
+};
+
+const IS_SERVERLESS = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+const DATA_DIR = IS_SERVERLESS
+  ? path.join(os.tmpdir(), 'mkc-cbt-data')
+  : path.resolve(process.cwd(), '.data');
 const STORE_PATH = path.join(DATA_DIR, 'cbt-store.json');
 
 function emptyState(): StoreState {
@@ -162,12 +180,16 @@ function emptyState(): StoreState {
 }
 
 function toDate(value: string | Date): Date {
-  return value instanceof Date ? value : new Date(value);
+  if (value instanceof Date) return value;
+  if (value && typeof (value as any).toDate === 'function') {
+    return (value as any).toDate();
+  }
+  return new Date(value);
 }
 
 function toNullableDate(value: string | Date | null | undefined): Date | null {
   if (!value) return null;
-  return value instanceof Date ? value : new Date(value);
+  return toDate(value);
 }
 
 function hydrateState(raw: any): StoreState {
@@ -223,33 +245,174 @@ function hydrateState(raw: any): StoreState {
 }
 
 let cachedState: StoreState | null = null;
+let localDiskLoaded = false;
+let remoteVersion = -1;
+let lastSyncedSnapshot = new Map<string, string>();
+let initInFlight: Promise<void> | null = null;
+
+function serializeRowForFirestore(row: any): Record<string, any> {
+  return JSON.parse(JSON.stringify(row));
+}
+
+function buildSnapshotMap(state: StoreState): Map<string, string> {
+  const map = new Map<string, string>();
+  (Object.keys(COLLECTION_NAMES) as TableKey[]).forEach((table) => {
+    const col = COLLECTION_NAMES[table];
+    for (const row of state[table] as Array<{ id: number }>) {
+      map.set(`${col}/${row.id}`, JSON.stringify(row));
+    }
+  });
+  return map;
+}
+
+export async function initStore(): Promise<void> {
+  if (hasAdminServiceAccount && adminDb) {
+    const db = adminDb;
+    if (initInFlight) {
+      await initInFlight;
+      return;
+    }
+    initInFlight = (async () => {
+      try {
+        const metaSnap = await db.collection('cbt_store').doc('meta').get();
+        if (metaSnap.exists) {
+          const metaData = metaSnap.data() as {
+            version?: number;
+            counters?: Partial<StoreState['counters']>;
+          };
+          const incomingVersion = Number(metaData?.version ?? 0);
+          if (cachedState && remoteVersion === incomingVersion) {
+            return;
+          }
+          const tableKeys = Object.keys(COLLECTION_NAMES) as TableKey[];
+          const snaps = await Promise.all(
+            tableKeys.map((key) =>
+              db.collection(COLLECTION_NAMES[key]).get()
+            )
+          );
+          const raw: Record<string, any> = {
+            counters: metaData?.counters || {},
+          };
+          tableKeys.forEach((key, idx) => {
+            raw[key] = snaps[idx].docs.map((d) => d.data());
+          });
+          cachedState = hydrateState(raw);
+          remoteVersion = incomingVersion;
+          lastSyncedSnapshot = buildSnapshotMap(cachedState);
+          return;
+        }
+      } catch (err) {
+        console.error('Failed to load store from Firestore Admin:', err);
+      } finally {
+        initInFlight = null;
+      }
+    })();
+    await initInFlight;
+  }
+
+  if (!cachedState) {
+    getStore();
+  }
+}
 
 export function getStore(): StoreState {
   if (cachedState) return cachedState;
-  try {
-    if (fs.existsSync(STORE_PATH)) {
-      const content = fs.readFileSync(STORE_PATH, 'utf8');
-      cachedState = hydrateState(JSON.parse(content));
-      return cachedState;
+  if (!localDiskLoaded) {
+    localDiskLoaded = true;
+    try {
+      if (fs.existsSync(STORE_PATH)) {
+        const content = fs.readFileSync(STORE_PATH, 'utf8');
+        cachedState = hydrateState(JSON.parse(content));
+        return cachedState;
+      }
+    } catch (err) {
+      console.error('Failed to read local CBT store, initializing fresh state:', err);
     }
-  } catch (err) {
-    console.error('Failed to read local CBT store, initializing fresh state:', err);
   }
   cachedState = emptyState();
   return cachedState;
 }
 
-export function saveStore(): void {
+export async function saveStore(): Promise<void> {
   const state = getStore();
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
+
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+    const tmpPath = `${STORE_PATH}.tmp`;
+    fs.writeFileSync(tmpPath, JSON.stringify(state), 'utf8');
+    fs.renameSync(tmpPath, STORE_PATH);
+  } catch (err) {
+    if (!IS_SERVERLESS) {
+      console.error('Failed to persist local CBT store:', err);
+    }
   }
-  const tmpPath = `${STORE_PATH}.tmp`;
-  fs.writeFileSync(tmpPath, JSON.stringify(state), 'utf8');
-  fs.renameSync(tmpPath, STORE_PATH);
+
+  if (hasAdminServiceAccount && adminDb) {
+    try {
+      const nextSnapshot = buildSnapshotMap(state);
+      const ops: Array<{
+        type: 'set' | 'delete';
+        col: string;
+        docId: string;
+        data?: Record<string, any>;
+      }> = [];
+
+      (Object.keys(COLLECTION_NAMES) as TableKey[]).forEach((table) => {
+        const col = COLLECTION_NAMES[table];
+        for (const row of state[table] as Array<{ id: number }>) {
+          const key = `${col}/${row.id}`;
+          const serialized = JSON.stringify(row);
+          if (lastSyncedSnapshot.get(key) !== serialized) {
+            ops.push({
+              type: 'set',
+              col,
+              docId: String(row.id),
+              data: serializeRowForFirestore(row),
+            });
+          }
+        }
+      });
+
+      for (const oldKey of lastSyncedSnapshot.keys()) {
+        if (!nextSnapshot.has(oldKey)) {
+          const [col, docId] = oldKey.split('/');
+          ops.push({ type: 'delete', col, docId });
+        }
+      }
+
+      const nextVersion = Math.max(0, remoteVersion) + 1;
+      const CHUNK_SIZE = 400;
+      for (let i = 0; i < ops.length; i += CHUNK_SIZE) {
+        const batch = adminDb.batch();
+        const chunk = ops.slice(i, i + CHUNK_SIZE);
+        for (const op of chunk) {
+          const ref = adminDb.collection(op.col).doc(op.docId);
+          if (op.type === 'set' && op.data) {
+            batch.set(ref, op.data);
+          } else {
+            batch.delete(ref);
+          }
+        }
+        await batch.commit();
+      }
+
+      await adminDb.collection('cbt_store').doc('meta').set({
+        version: nextVersion,
+        counters: state.counters,
+        updatedAt: new Date().toISOString(),
+      });
+
+      remoteVersion = nextVersion;
+      lastSyncedSnapshot = nextSnapshot;
+    } catch (err) {
+      console.error('Failed to sync store to Firestore Admin:', err);
+    }
+  }
 }
 
-export function nextId(table: keyof StoreState['counters']): number {
+export function nextId(table: TableKey): number {
   const state = getStore();
   state.counters[table] += 1;
   return state.counters[table];

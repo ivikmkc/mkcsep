@@ -1,5 +1,5 @@
 import bcrypt from 'bcryptjs';
-import { getStore, nextId, saveStore } from './localStore.ts';
+import { getStore, initStore, nextId, saveStore } from './localStore.ts';
 
 let seedPromise: Promise<void> | null = null;
 
@@ -38,13 +38,19 @@ async function ensureSuperAdminSeeded() {
 }
 
 async function runSeed() {
+  await initStore();
   const store = getStore();
+  const hadUsers = store.users.length;
+  const hadSettings = store.schoolSettings.length;
+
   await ensureSuperAdminSeeded();
   ensureSchoolSettingsSeeded();
 
   const nonAdminUsers = store.users.filter((u) => u.role === 'guru');
   if (nonAdminUsers.length > 0 || store.users.length > 1) {
-    saveStore();
+    if (store.users.length !== hadUsers || store.schoolSettings.length !== hadSettings) {
+      await saveStore();
+    }
     return;
   }
 
@@ -251,10 +257,11 @@ async function runSeed() {
     });
   });
 
-  saveStore();
+  await saveStore();
 }
 
 export async function ensureSeeded(): Promise<void> {
+  await initStore();
   if (!seedPromise) {
     seedPromise = runSeed().catch((err) => {
       seedPromise = null;

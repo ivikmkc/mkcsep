@@ -1,11 +1,10 @@
 import bcrypt from 'bcryptjs';
 import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
-import express, { Request, Response } from 'express';
+import express, { NextFunction, Request, Response } from 'express';
 import helmet from 'helmet';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createServer as createViteServer } from 'vite';
 import {
   autosaveStudentAnswers,
   createExam,
@@ -78,6 +77,16 @@ app.use(cookieParser());
 
 app.get('/api/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok', serverTime: new Date().toISOString() });
+});
+
+app.use('/api', async (req: Request, _res: Response, next: NextFunction) => {
+  if (req.path === '/health') return next();
+  try {
+    await ensureSeeded();
+    return next();
+  } catch (err) {
+    return next(err);
+  }
 });
 
 app.get('/api/public/portal-info', async (_req: Request, res: Response) => {
@@ -1213,6 +1222,7 @@ app.get(
 
 async function startServer() {
   if (process.env.NODE_ENV !== 'production') {
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
@@ -1231,4 +1241,10 @@ async function startServer() {
   });
 }
 
-startServer();
+if (!process.env.VERCEL) {
+  startServer();
+}
+
+export { app };
+export default app;
+

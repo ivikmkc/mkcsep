@@ -1,33 +1,20 @@
-# Panduan Upload & Hosting SakaUjian CBT (Node.js + PostgreSQL)
+# Panduan Hosting MKC CBT (Vercel Serverless & Node.js)
 
-## 1. Persiapan Environment Hosting
-Aplikasi ini membutuhkan Node.js 20+ dan database PostgreSQL (Cloud SQL, VPS Postgres, Neon, atau layanan PostgreSQL hosting lainnya).
+## 1. Deploy ke Vercel (`vercel.json` + `api/index.ts`)
+Proyek ini sudah dilengkapi `vercel.json` dan serverless handler `api/index.ts` sehingga route frontend (`dist/`) dan API backend (`/api/*`) berjalan dalam satu deployment Vercel.
 
-Siapkan variabel lingkungan berikut pada panel hosting (`.env` / Environment Variables):
-- `PORT=3000`
-- `NODE_ENV=production`
-- `SQL_HOST=<host-atau-socket-postgresql>`
-- `SQL_DB_NAME=<nama-database>`
-- `SQL_USER=<user-aplikasi>`
-- `SQL_PASSWORD=<password-user-aplikasi>`
-- `SQL_ADMIN_USER=<user-admin-migrasi>`
-- `SQL_ADMIN_PASSWORD=<password-admin-migrasi>`
-- `SESSION_SECRET=<string-acak-minimal-32-karakter>`
+Atur **Environment Variables** berikut di **Vercel Project Settings → Environment Variables**:
+- `SESSION_SECRET`: string acak minimal 32 karakter (wajib sama antar serverless instance agar token login siswa/guru/super admin tetap valid).
+- `FIREBASE_SERVICE_ACCOUNT_JSON`: isi JSON (atau string base64 dari JSON) **Firebase Service Account Key** dari Firebase Console (*Project Settings → Service accounts → Generate new private key*) agar seluruh data (akun siswa/guru, bank soal, ujian, jawaban, dan audit log) tersimpan **permanen** di Cloud Firestore (`ai-studio-remixsakaujiancb-e0846e26-5263-42b1-acea-b52700abc083`).
 
-## 2. Inisialisasi Skema SQL
-Jalankan salah satu cara berikut:
-1. Menggunakan Drizzle Kit:
-   ```bash
-   npx drizzle-kit push
-   ```
-2. Atau impor langsung file `database/schema.sql` ke database PostgreSQL Anda.
+> **Catatan**: Jika `FIREBASE_SERVICE_ACCOUNT_JSON` belum diisi, Vercel tetap dapat menjalankan login demo menggunakan penyimpanan sementara di `/tmp`, namun data perubahan akan kembali ke bawaan awal saat serverless function restart.
 
-## 3. Build & Jalankan di Hosting
+## 2. Menjalankan Secara Lokal / VPS Node.js
 ```bash
 npm install
 npm run build
 npm start
 ```
 
-## 4. Catatan Keamanan Exam Mode
+## 3. Catatan Keamanan Exam Mode
 Browser web standar tidak dapat menjamin penguncian perangkat 100% pada tingkat sistem operasi. Untuk ujian berisiko tinggi, gunakan perangkat terkelola (*managed device* / Chromebook Kiosk) atau peramban ujian khusus (*Safe Exam Browser*).

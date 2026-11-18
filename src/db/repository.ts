@@ -80,7 +80,7 @@ export async function getOrCreateFirebaseUser(
     if (defaultRole === 'super_admin') {
       existing.role = 'super_admin';
     }
-    saveStore();
+    await saveStore();
     return existing;
   }
 
@@ -107,7 +107,7 @@ export async function getOrCreateFirebaseUser(
     createdAt: new Date(),
   };
   store.users.push(created);
-  saveStore();
+  await saveStore();
   return created;
 }
 
@@ -165,7 +165,7 @@ export async function createStudentAccount(input: {
     createdAt: new Date(),
   };
   store.users.push(created);
-  saveStore();
+  await saveStore();
   return {
     id: created.id,
     username: created.username,
@@ -236,7 +236,7 @@ export async function importStudentAccountsBatch(
   );
 
   store.users.push(...inserted);
-  saveStore();
+  await saveStore();
 
   return {
     importedCount: inserted.length,
@@ -266,7 +266,7 @@ export async function deleteStudentAccount(studentId: number) {
     (a) => !removedSessionIds.has(a.sessionId)
   );
   store.violationLogs = store.violationLogs.filter((v) => v.studentId !== studentId);
-  saveStore();
+  await saveStore();
 }
 
 export async function listTeachers() {
@@ -314,7 +314,7 @@ export async function createTeacherAccount(input: {
     createdAt: new Date(),
   };
   store.users.push(created);
-  saveStore();
+  await saveStore();
 
   return {
     id: created.id,
@@ -335,7 +335,7 @@ export async function deleteTeacherAccount(teacherId: number) {
     throw new Error('Akun guru tidak ditemukan.');
   }
   store.users.splice(idx, 1);
-  saveStore();
+  await saveStore();
 }
 
 export async function listTeacherQuestions(teacherId: number, isSuperAdmin = false) {
@@ -390,7 +390,7 @@ export async function createQuestion(
     updatedAt: now,
   };
   store.questions.push(created);
-  saveStore();
+  await saveStore();
 
   return {
     ...created,
@@ -432,7 +432,7 @@ export async function createQuestionsBatch(
   }));
 
   store.questions.push(...inserted);
-  saveStore();
+  await saveStore();
 
   return inserted.map((created) => ({
     ...created,
@@ -474,7 +474,7 @@ export async function updateQuestion(
   target.difficulty = input.difficulty;
   target.updatedAt = new Date();
 
-  saveStore();
+  await saveStore();
 
   return {
     ...target,
@@ -496,7 +496,7 @@ export async function deleteQuestion(
   store.examQuestions = store.examQuestions.filter(
     (eq) => eq.questionId !== questionId
   );
-  saveStore();
+  await saveStore();
 }
 
 export async function listTeacherExams(teacherId: number, isSuperAdmin = false) {
@@ -608,7 +608,7 @@ export async function createExam(
     });
   });
 
-  saveStore();
+  await saveStore();
 
   return {
     ...created,
@@ -697,7 +697,7 @@ export async function updateExam(
     });
   });
 
-  saveStore();
+  await saveStore();
 
   return {
     ...target,
@@ -727,7 +727,7 @@ export async function deleteExam(
     (a) => !removedSessionIds.has(a.sessionId)
   );
   store.violationLogs = store.violationLogs.filter((v) => v.examId !== examId);
-  saveStore();
+  await saveStore();
 }
 
 export async function lookupExamByCodeForStudent(examCode: string, studentId: number) {
@@ -890,7 +890,7 @@ export async function startOrResumeStudentSession(examId: number, studentId: num
       teacherNotes: '',
     };
     store.examSessions.push(session);
-    saveStore();
+    await saveStore();
   } else if (session.status === 'in_progress' && now >= session.serverEndTime) {
     session = await finalizeAndGradeSession(session.id, 'timed_out');
   }
@@ -1035,7 +1035,7 @@ export async function autosaveStudentAnswers(
 
   upsertAnswersBatchSync(session.id, items, now);
   session.lastSavedAt = now;
-  saveStore();
+  await saveStore();
 
   return {
     locked: false,
@@ -1106,7 +1106,7 @@ export async function recordStudentViolation(
   } else {
     session.violationCount = nextCount;
     session.status = nextStatus;
-    saveStore();
+    await saveStore();
   }
 
   return {
@@ -1161,7 +1161,7 @@ export async function verifyProctorPinAndUnlock(
     actionTaken: 'unlocked_by_teacher',
     occurredAt: now,
   });
-  saveStore();
+  await saveStore();
 
   return {
     unlocked: true,
@@ -1200,7 +1200,7 @@ export async function unlockSessionByTeacher(
     actionTaken: 'unlocked_by_teacher',
     occurredAt: now,
   });
-  saveStore();
+  await saveStore();
 
   return session;
 }
@@ -1287,7 +1287,7 @@ export async function finalizeAndGradeSession(
   session.finalScore = finalScore;
   session.essayGraded = hasEssay ? session.essayGraded : true;
 
-  saveStore();
+  await saveStore();
   return session;
 }
 
@@ -1640,7 +1640,7 @@ export async function gradeSessionEssays(
   session.essayGraded = true;
   session.teacherNotes = teacherNotes;
 
-  saveStore();
+  await saveStore();
   return session;
 }
 
@@ -1661,7 +1661,7 @@ export async function deleteStudentSession(
   store.examSessions = store.examSessions.filter((s) => s.id !== sessionId);
   store.studentAnswers = store.studentAnswers.filter((a) => a.sessionId !== sessionId);
   store.violationLogs = store.violationLogs.filter((v) => v.sessionId !== sessionId);
-  saveStore();
+  await saveStore();
 }
 
 export async function getTeacherViolationLogs(
@@ -1720,7 +1720,7 @@ export async function getSchoolSettings() {
     updatedAt: new Date(),
   };
   store.schoolSettings.push(created);
-  saveStore();
+  await saveStore();
   return created;
 }
 
@@ -1736,7 +1736,7 @@ export async function updateSchoolSettings(input: {
   existing.academicYear = input.academicYear.trim();
   existing.footerText = input.footerText.trim() || '© MKC CBT';
   existing.updatedAt = new Date();
-  saveStore();
+  await saveStore();
   return existing;
 }
 
